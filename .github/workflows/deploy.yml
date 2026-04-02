@@ -31,8 +31,7 @@ jobs:
             .next \
             public \
             package.json \
-            package-lock.json \
-            next.config.js
+            package-lock.json
 
       - name: 📤 Upload to Server (SCP)
         uses: appleboy/scp-action@v0.1.7
@@ -54,10 +53,12 @@ jobs:
             echo "🚀 Starting deployment..."
 
             if [ "${{ github.ref_name }}" = "main" ]; then
+              echo "📦 PRODUCTION DEPLOY"
               APP_DIR="/var/www/prod"
               PORT=3000
               APP_NAME="next-prod"
             else
+              echo "🧪 STAGING DEPLOY"
               APP_DIR="/var/www/staging"
               PORT=3001
               APP_NAME="next-staging"
@@ -66,10 +67,13 @@ jobs:
             mkdir -p $APP_DIR
             cd $APP_DIR
 
-            echo "📦 Extracting..."
+            echo "🧹 Cleaning old files..."
+            rm -rf .next public node_modules package.json package-lock.json
+
+            echo "📦 Extracting new build..."
             tar -xzf /var/www/deploy.tar.gz -C $APP_DIR
 
-            echo "📦 Installing production deps..."
+            echo "📦 Installing production dependencies..."
             npm install --production
 
             echo "🔁 Restarting PM2..."
