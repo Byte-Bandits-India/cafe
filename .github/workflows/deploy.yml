@@ -1,4 +1,4 @@
-name: 🚀 Deploy Next.js App
+name: 🚀 Build & Deploy Next.js
 
 on:
   push:
@@ -7,13 +7,44 @@ on:
       - development
 
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 🔐 Deploy to Server via SSH
-        uses: appleboy/ssh-action@v1.0.3
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
 
+      - name: 🟢 Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 📦 Install Dependencies
+        run: npm install
+
+      - name: 🏗 Build Next.js
+        run: npm run build
+
+      - name: 📦 Create Deployment Package
+        run: |
+          tar -czf deploy.tar.gz \
+            .next \
+            public \
+            package.json \
+            package-lock.json \
+            next.config.js
+
+      - name: 📤 Upload to Server (SCP)
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "deploy.tar.gz"
+          target: "/var/www/"
+
+      - name: 🚀 Deploy on Server
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_IP }}
           username: root
@@ -23,50 +54,33 @@ jobs:
             echo "🚀 Starting deployment..."
 
             if [ "${{ github.ref_name }}" = "main" ]; then
-              echo "📦 Deploying PRODUCTION..."
-
               APP_DIR="/var/www/prod"
               PORT=3000
               APP_NAME="next-prod"
-
-              if [ ! -d "$APP_DIR" ]; then
-                echo "📁 Cloning repo..."
-                git clone git@github.com:Byte-Bandits-India/cafe.git $APP_DIR
-              fi
-
-              cd $APP_DIR
-              git fetch origin
-              git reset --hard origin/main
-
-            elif [ "${{ github.ref_name }}" = "development" ]; then
-              echo "🧪 Deploying STAGING..."
-
+            else
               APP_DIR="/var/www/staging"
               PORT=3001
               APP_NAME="next-staging"
-
-              if [ ! -d "$APP_DIR" ]; then
-                echo "📁 Cloning repo..."
-                git clone git@github.com:Byte-Bandits-India/cafe.git $APP_DIR
-              fi
-
-              cd $APP_DIR
-              git fetch origin
-              git reset --hard origin/development
             fi
 
-            echo "📦 Installing dependencies..."
-            npm install
+            mkdir -p $APP_DIR
+            cd $APP_DIR
 
-            echo "🏗 Building project..."
-            npm run build
+            echo "📦 Extracting..."
+            tar -xzf /var/www/deploy.tar.gz -C $APP_DIR
 
-            echo "🔁 Restarting app with PM2..."
+            echo "📦 Installing production deps..."
+            npm install --production
 
-            pm2 delete $APP_NAME || true
-            PORT=$PORT pm2 start npm --name "$APP_NAME" -- start
+            echo "🔁 Restarting PM2..."
 
-            echo "💾 Saving PM2..."
+            pm2 describe $APP_NAME > /dev/null
+            if [ $? -eq 0 ]; then
+              pm2 restart $APP_NAME --update-env
+            else
+              PORT=$PORT pm2 start npm --name "$APP_NAME" -- start
+            fi
+
             pm2 save
 
             echo "✅ Deployment completed!"
